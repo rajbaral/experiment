@@ -6,6 +6,25 @@ import argparse
 EXCLUDE_DIRS = ['bin', 'obj', '.git', '.vs', 'node_modules']
 EXCLUDE_FILES = ['*.dll', '*.pdb', '*.exe', '*.cache', '.DS_Store', 'Thumbs.db']
 
+def ignore_patterns(ignore_dirs, ignore_files):
+    """Custom ignore function to exclude specific files and directories."""
+    def _ignore_patterns(path, names):
+        ignored_names = set()
+        
+        # Ignore directories
+        for directory in ignore_dirs:
+            if directory in names:
+                ignored_names.add(directory)
+        
+        # Ignore files with specified patterns
+        for pattern in ignore_files:
+            for name in names:
+                if name.endswith(pattern):
+                    ignored_names.add(name)
+        
+        return ignored_names
+    return _ignore_patterns
+
 def rename_in_file(file_path, old_name, new_name):
     """Replace old name with new name inside the content of the file."""
     try:
@@ -31,15 +50,17 @@ def create_project_directory(project_name, source, destination):
         item_path = os.path.join(source, item)
         dest_path = os.path.join(project_path, item)
 
-        # Filter out unwanted directories and files
-        if os.path.isdir(item_path) and item in EXCLUDE_DIRS:
+        # Skip excluded directories and files
+        if os.path.isdir(item_path) and os.path.basename(item_path) in EXCLUDE_DIRS:
+            print(f"Skipping directory: {item_path}")
             continue
-        if os.path.isfile(item_path) and any(item.endswith(ext) for ext in EXCLUDE_FILES):
+        if os.path.isfile(item_path) and any(item_path.endswith(ext) for ext in EXCLUDE_FILES):
+            print(f"Skipping file: {item_path}")
             continue
 
         # Copy directories or files
         if os.path.isdir(item_path):
-            shutil.copytree(item_path, dest_path, dirs_exist_ok=True)
+            shutil.copytree(item_path, dest_path, ignore=ignore_patterns(EXCLUDE_DIRS, EXCLUDE_FILES), dirs_exist_ok=True)
         else:
             shutil.copy2(item_path, dest_path)
 
