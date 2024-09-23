@@ -1,3 +1,25 @@
+"""
+Script Name: create_project.py
+Description: This script creates a new project from a template directory, renaming necessary files and directories.
+Author: [Your Name]
+Version: 1.0
+Date: YYYY-MM-DD
+Usage:
+    python create_project.py <project_name> [--source <source_template_directory>] [--destination <destination_directory>]
+
+Arguments:
+    project_name          - The name of the project to be created
+    --source              - (Optional) Path to the template directory (default: './template')
+    --destination         - (Optional) Path to the destination directory (default: './NewProjects')
+
+Exclusions:
+    - Skips directories: bin, obj, .git, node_modules, etc.
+    - Skips files: .dll, .pdb, .exe, etc.
+
+Example:
+    python create_project.py MyNewProject --source ./template --destination ./NewProjects
+
+"""
 import os
 import shutil
 import argparse
