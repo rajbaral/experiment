@@ -1,0 +1,238 @@
+Yes, you can absolutely adjust the script to read all PDFs in a folder dynamically instead of hardcoding the filename! This makes the solution more flexible. Below is the complete project setup, incorporating the Streamlit app and reading from a folder of PDFs.
+
+Updated Folder Structure
+
+Here’s the updated structure:
+
+pdf-chatbot/
+│
+├── README.md                # Instructions to use the project
+├── requirements.txt         # Dependencies
+├── app/
+│   ├── main.py              # Main chatbot script
+│   ├── utils.py             # Helper functions
+│   ├── embeddings/          # Folder for FAISS index and embeddings
+│       ├── index.faiss
+│       └── embeddings.npy
+│   ├── documents/           # Folder to store PDFs
+│       └── sample.pdf       # Example PDF
+│   └── processed/           # Folder for storing processed metadata
+└── demo/
+    └── streamlit_app.py     # Streamlit app for demo
+
+Updated Code
+
+1. utils.py
+
+Helper functions updated to process all PDFs in a folder:
+
+import os
+from sentence_transformers import SentenceTransformer
+from PyPDF2 import PdfReader
+import faiss
+import numpy as np
+
+# Extract text from a single PDF
+def extract_text_from_pdf(pdf_path):
+    reader = PdfReader(pdf_path)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text()
+    return text
+
+# Process all PDFs in a folder and combine text
+def extract_text_from_folder(folder_path):
+    all_text = ""
+    for file in os.listdir(folder_path):
+        if file.endswith(".pdf"):
+            file_path = os.path.join(folder_path, file)
+            all_text += extract_text_from_pdf(file_path) + "\n"
+    return all_text
+
+# Split text into smaller chunks
+def split_text(text, chunk_size=500, overlap=50):
+    words = text.split()
+    chunks = []
+    for i in range(0, len(words), chunk_size - overlap):
+        chunks.append(" ".join(words[i:i + chunk_size]))
+    return chunks
+
+# Create embeddings for text chunks
+def create_embeddings(chunks):
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    embeddings = model.encode(chunks)
+    return embeddings, model
+
+# Create FAISS index for semantic search
+def create_faiss_index(embeddings):
+    dimension = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dimension)
+    index.add(embeddings)
+    return index
+
+# Retrieve relevant chunks using FAISS
+def retrieve_chunks(query, index, chunks, model, top_k=3):
+    query_embedding = model.encode([query])
+    distances, indices = index.search(query_embedding, top_k)
+    return [chunks[i] for i in indices[0]]
+
+2. main.py
+
+Main script to dynamically read all PDFs and interact via the CLI:
+
+import os
+from utils import extract_text_from_folder, split_text, create_embeddings, create_faiss_index, retrieve_chunks
+import numpy as np
+import faiss
+
+# Paths
+PDF_FOLDER = "app/documents/"
+EMBEDDING_DIR = "app/embeddings/"
+INDEX_PATH = os.path.join(EMBEDDING_DIR, "index.faiss")
+EMBEDDINGS_PATH = os.path.join(EMBEDDING_DIR, "embeddings.npy")
+
+def chatbot():
+    # Create necessary directories
+    if not os.path.exists(EMBEDDING_DIR):
+        os.makedirs(EMBEDDING_DIR)
+    
+    # Process PDFs and create embeddings
+    print("Processing PDFs in the folder...")
+    text = extract_text_from_folder(PDF_FOLDER)
+    chunks = split_text(text)
+    embeddings, embedding_model = create_embeddings(chunks)
+    
+    # Save FAISS index and embeddings
+    index = create_faiss_index(np.array(embeddings))
+    faiss.write_index(index, INDEX_PATH)
+    np.save(EMBEDDINGS_PATH, embeddings)
+
+    print("Chatbot is ready! Ask your questions.")
+    while True:
+        query = input("Your Question: ")
+        relevant_chunks = retrieve_chunks(query, index, chunks, embedding_model)
+        print("Answer Context:", " ".join(relevant_chunks))
+
+if __name__ == "__main__":
+    chatbot()
+
+3. Streamlit App
+
+A user-friendly front-end that dynamically processes PDFs:
+
+import streamlit as st
+from utils import extract_text_from_folder, split_text, create_embeddings, create_faiss_index, retrieve_chunks
+import faiss
+import numpy as np
+
+PDF_FOLDER = "app/documents/"
+
+# App Title
+st.title("PDF Chatbot")
+
+# Display instructions
+st.write("Upload PDF files to the `app/documents` folder and ask questions based on their content.")
+
+# Process PDFs
+text = extract_text_from_folder(PDF_FOLDER)
+chunks = split_text(text)
+embeddings, embedding_model = create_embeddings(chunks)
+index = create_faiss_index(embeddings)
+
+# User interaction
+query = st.text_input("Ask a question about the PDFs:")
+if query:
+    relevant_chunks = retrieve_chunks(query, index, chunks, embedding_model)
+    st.write("**Answer Context:**", " ".join(relevant_chunks))
+
+README.md
+
+Here’s the updated README.md:
+
+# PDF Chatbot
+
+## Overview
+This chatbot reads all PDFs from a folder, processes their content, and answers questions using semantic search and context-based retrieval. It works locally to ensure security.
+
+---
+
+## Features
+- Dynamically reads all PDFs in a folder.
+- Creates embeddings for efficient semantic search using FAISS.
+- Provides answers based on the content of uploaded documents.
+
+---
+
+## Folder Structure
+
+pdf-chatbot/
+├── README.md
+├── requirements.txt
+├── app/
+│   ├── main.py
+│   ├── utils.py
+│   ├── embeddings/
+│   ├── documents/
+│   └── processed/
+└── demo/
+└── streamlit_app.py
+
+---
+
+## Installation
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/your-repo/pdf-chatbot.git
+cd pdf-chatbot
+
+2. Install Dependencies
+
+pip install -r requirements.txt
+
+Usage
+
+CLI Chatbot
+	1.	Place your PDFs in the app/documents folder.
+	2.	Run the chatbot:
+
+python app/main.py
+
+
+	3.	Ask questions when prompted!
+
+Streamlit App
+	1.	Place your PDFs in the app/documents folder.
+	2.	Run the Streamlit app:
+
+streamlit run demo/streamlit_app.py
+
+
+	3.	Open the URL provided in the terminal and ask questions.
+
+Security
+	1.	Local Processing: All text processing and embeddings are created locally. No data is sent to external servers.
+	2.	Data Isolation: PDFs, embeddings, and indexes are stored in isolated folders (app/documents/ and app/embeddings/).
+	3.	Customizability: Extend security by encrypting sensitive data if needed.
+
+Sample Questions
+
+Use the provided sample.pdf to test:
+	1.	“What is the company’s vision?”
+	2.	“What are the key projects?”
+	3.	“How can I contact the company?”
+
+Next Steps
+	•	Add support for additional document formats (e.g., Word, Excel).
+	•	Implement encryption for sensitive document handling.
+
+---
+
+## **Running the Project**
+1. Add PDFs to the `app/documents/` folder.
+2. Use either the CLI chatbot (`main.py`) or the Streamlit app (`streamlit_app.py`).
+3. Test with sample questions like:
+   - "What is the company’s vision?"
+   - "When will the wind turbine upgrades be completed?"
+
+Let me know if you need further assistance!
