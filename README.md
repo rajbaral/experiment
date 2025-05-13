@@ -1,82 +1,89 @@
-# experiment
-trigger:
-  branches:
-    include:
-      - main
-      - develop
+Got it — your lead engineer is 100% correct. Since your Angular app is part of a Single-SPA microfrontend architecture, your index.html won’t be used directly when the app is mounted. Scripts added there (like the Asprise CDN link) won’t be executed.
 
-schedules:
-- cron: "0 2 * * *" # Nightly run at 2 AM UTC
-  displayName: Nightly Scheduled Test Run
-  branches:
-    include:
-      - develop
-      - main
-  always: true
+⸻
 
-pool:
-  vmImage: 'windows-latest'
+Goal: Dynamically load the Asprise CDN script from your Angular AppComponent (or another root component)
 
-variables:
-  buildConfiguration: 'Release'
-  testResultsFolder: 'TestResults'
-  screenshotsFolder: 'TestResults/Screenshots'
-  testProjectPath: 'src/Tests/Tests.csproj'  # Path to your test project
-  baseUrl: 'https://staging.example.com'
+This is the best approach when working with Single-SPA.
 
-steps:
-# 1. Checkout the repository
-- task: Checkout@1
+⸻
 
-# 2. Install .NET 8 SDK
-- task: UseDotNet@2
-  inputs:
-    packageType: 'sdk'
-    version: '8.x'
+Step-by-Step: Load Asprise Scanner Script in AppComponent
+	1.	Remove the <script> tag from index.html, if still present:
 
-# 3. Restore dependencies
-- script: |
-    dotnet restore $(testProjectPath)
-  displayName: 'Restore Dependencies'
+<script src="https://asprise.azureedge.net/scannerjs/scanner.js"></script> <!-- REMOVE THIS -->
 
-# 4. Install Playwright Browsers
-- script: |
-    dotnet tool restore
-    dotnet playwright install
-  displayName: 'Install Playwright Browsers'
 
-# 5. Build the Test Project
-- script: |
-    dotnet build $(testProjectPath) --configuration $(buildConfiguration)
-  displayName: 'Build Test Project'
+	2.	In your AppComponent, dynamically load the script:
+In app.component.ts:
 
-# 6. Run Tests and Capture Screenshots
-- script: |
-    dotnet test $(testProjectPath) --configuration $(buildConfiguration) \
-      --logger:trx --results-directory $(testResultsFolder) \
-      -- TestRunParameters.Parameter(name=BaseUrl, value=$(baseUrl)) \
-      || echo "Tests failed. Check screenshots."
-  displayName: 'Run E2E Tests'
+import { Component, OnInit } from '@angular/core';
 
-# 7. Collect Screenshots (if any)
-- script: |
-    if [ -d $(screenshotsFolder) ]; then
-      echo "Screenshots captured. Publishing them as artifacts.";
-    else
-      echo "No screenshots found.";
-    fi
-  displayName: 'Collect Screenshots'
+@Component({
+  selector: 'app-root',
+  templateUrl: './app.component.html',
+  styleUrls: ['./app.component.scss']
+})
+export class AppComponent implements OnInit {
 
-# 8. Publish Test Results
-- task: PublishTestResults@2
-  inputs:
-    testResultsFiles: '$(testResultsFolder)/*.trx'
-    testRunTitle: 'Playwright E2E Tests'
-  condition: succeededOrFailed()
+  ngOnInit(): void {
+    this.loadScannerScript();
+  }
 
-# 9. Publish Screenshots as Artifacts
-- task: PublishPipelineArtifact@1
-  inputs:
-    targetPath: '$(screenshotsFolder)'
-    artifactName: 'Screenshots'
-  condition: always()
+  loadScannerScript(): void {
+    const existingScript = document.getElementById('asprise-scanner') as HTMLScriptElement;
+    if (!existingScript) {
+      const script = document.createElement('script');
+      script.src = 'https://asprise.azureedge.net/scannerjs/scanner.js';
+      script.id = 'asprise-scanner';
+      script.type = 'text/javascript';
+      script.onload = () => {
+        console.log('Asprise scanner.js loaded.');
+        // Optional: Initialize or test something here
+      };
+      script.onerror = () => {
+        console.error('Failed to load Asprise scanner.js');
+      };
+      document.body.appendChild(script);
+    } else {
+      console.log('Asprise scanner.js already loaded.');
+    }
+  }
+}
+
+
+	3.	Use the scanner normally in your component once it’s loaded.
+After scanner.js is loaded, you can call:
+
+Scanner.scan(displayScanResult, {
+  output_settings: [{ type: 'return-base64', format: 'jpg' }]
+});
+
+function displayScanResult(successful, mesg, response) {
+  // handle scanned image
+}
+
+
+
+⸻
+
+Bonus: Prevent Multiple Loads
+
+The script.id = 'asprise-scanner' line helps prevent the script from being loaded multiple times, even if the component remounts.
+
+⸻
+
+Alternate: Host Locally
+
+If you’d prefer to download and host the script yourself, you can:
+	1.	Download scanner.js from Asprise CDN.
+	2.	Place it in src/assets/scanner/ in your Angular app.
+	3.	Change the script URL in the code above to:
+
+script.src = '/assets/scanner/scanner.js';
+
+
+
+⸻
+
+Let me know which path you want to go with or if you want to auto-trigger the scanner once loaded.
