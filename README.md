@@ -58,3 +58,17 @@ function displayScanResult(successful: boolean, mesg: string, response: string) 
 }
 
 // connect-src 'self' https: wss://local.scannerjs.com:9714;
+
+
+
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https: localhost:* https://*.maze.co/; img-src 'self' https: localhost:* data:; script-src 'unsafe-inline' 'unsafe-eval' https: localhost:*; connect-src 'self' https: localhost:* ws://localhost:* wss://* wss://local.scannerjs.com:9714; style-src 'unsafe-inline' https:; object-src 'none'; worker-src blob:;">
+
+
+Unfortunately, CSP wildcards don’t work the way we’d hope in this case. Specifically:
+	•	wss://localhost:* only matches exactly localhost — it does not include local.scannerjs.com
+	•	Wildcards like wss://local*:* are not valid in CSP syntax — domain wildcards must be in the form of *.domain.com, and ports must be specific or fully wildcarded (:* isn’t valid)
+
+Because local.scannerjs.com is a loopback alias with a non-standard port (:9714), it needs to be explicitly declared like this:
+wss://local.scannerjs.com:9714
+
+So we need to keep wss://* (for general WebSocket use), and add this specific one for Asprise to function properly.
