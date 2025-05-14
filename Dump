@@ -28,3 +28,7 @@ def extract_text_from_folder(folder_path):
             else:
                 print(f"Skipping {file} due to an error.")
     return all_text
+
+
+
+// <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: localhost:* https://*.maze.co/; img-src 'self' https: localhost:* data:; script-src 'unsafe-inline' 'unsafe-eval' https: localhost:*; connect-src 'self' https: localhost:* ws://localhost:* wss://local.scannerjs.com:9714; style-src 'unsafe-inline' https:; object-src 'none'; worker-src blob:;">
