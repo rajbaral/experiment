@@ -56,3 +56,5 @@ Scanner.scan(displayScanResult, {
 function displayScanResult(successful: boolean, mesg: string, response: string) {
   // handle scanned image or error
 }
+
+// connect-src 'self' https: wss://local.scannerjs.com:9714;
