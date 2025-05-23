@@ -32,3 +32,57 @@ def extract_text_from_folder(folder_path):
 
 
 // <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: localhost:* https://*.maze.co/; img-src 'self' https: localhost:* data:; script-src 'unsafe-inline' 'unsafe-eval' https: localhost:*; connect-src 'self' https: localhost:* ws://localhost:* wss://local.scannerjs.com:9714; style-src 'unsafe-inline' https:; object-src 'none'; worker-src blob:;">
+
+
+import { HttpClient } from '@angular/common/http';
+import { Component, OnInit } from '@angular/core';
+
+declare const scanner: any;
+
+@Component({
+  selector: 'app-root',
+  templateUrl: './app.component.html',
+  styleUrls: ['./app.component.scss']
+})
+export class AppComponent implements OnInit {
+  constructor(private http: HttpClient) {}
+
+  ngOnInit(): void {
+    this.loadScannerScript();
+  }
+
+  loadScannerScript(): void {
+    const existingScript = document.getElementById('asprise-scanner') as HTMLScriptElement;
+    if (!existingScript) {
+      const script = document.createElement('script');
+      script.src = 'https://asprise.azureedge.net/scannerjs/scanner.js'; // Or use local path
+      script.id = 'asprise-scanner';
+      script.type = 'text/javascript';
+
+      script.onload = () => {
+        console.log('Scanner.js loaded');
+        this.loadLicenseKey(); // ✅ Load and assign license here
+      };
+
+      script.onerror = () => {
+        console.error('Failed to load scanner.js');
+      };
+
+      document.body.appendChild(script);
+    }
+  }
+
+  loadLicenseKey(): void {
+    this.http.get<{ scannerLicenseKey: string }>('/assets/runtime-config.json').subscribe({
+      next: config => {
+        if (typeof scanner !== 'undefined') {
+          scanner.licenseKey = config.scannerLicenseKey;
+          console.log('Scanner license key applied.');
+        }
+      },
+      error: err => {
+        console.error('Failed to load license key from config', err);
+      }
+    });
+  }
+}
