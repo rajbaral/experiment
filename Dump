@@ -188,3 +188,40 @@ This decoupled pattern is standard practice in modern apps (used by Dropbox, Goo
 ⸻
 
 Let me know if you want to compare this with Azure SDK’s own chunk upload (e.g., direct-to-blob via BlockBlobClient) — that’s another option if you’re using SAS tokens.
+
+
+
+async onUploadScans(): Promise<void> {
+  if (!this.scannedDocuments.length) return;
+
+  this.isUploading = true;
+  let allSuccessful = true;
+
+  for (let doc of this.scannedDocuments) {
+    const fileName = doc.name;
+    const base64Data = doc.url.replace('data:application/pdf;base64,', '');
+    this.uploadProgressMap[fileName] = 0;
+
+    try {
+      await this.scanUploadService.uploadPdfInChunksWithProgress(
+        base64Data,
+        fileName,
+        (progress: number) => {
+          this.uploadProgressMap[fileName] = progress;
+        }
+      );
+    } catch (err) {
+      allSuccessful = false;
+      console.error(`Upload failed for ${fileName}:`, err);
+      alert(`Upload failed for ${fileName}: ${err.message}`);
+    }
+  }
+
+  this.isUploading = false;
+
+  if (allSuccessful) {
+    alert('All uploads complete.');
+  } else {
+    alert('Some documents failed to upload. Please check the console or try again.');
+  }
+}
