@@ -267,3 +267,15 @@ async onUploadScans(): Promise<void> {
     }
   }
 }
+
+
+<div *ngFor="let doc of scannedDocuments" class="upload-progress-wrapper">
+  <div class="file-label">{{ doc.name }}</div>
+  <div class="progress-bar">
+    <div class="progress-fill" [style.width.%]="uploadProgressMap[doc.name] || 0">
+      <span class="progress-text">
+        {{ uploadProgressMap[doc.name] || 0 }}%
+      </span>
+    </div>
+  </div>
+</div>
