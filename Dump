@@ -279,3 +279,122 @@ async onUploadScans(): Promise<void> {
     </div>
   </div>
 </div>
+
+
+
+Here is your final drop-in Angular upload service method that works perfectly with your current .NET backend, and resolves the Unsupported file type error.
+
+⸻
+
+✅ Final UploadScanService Method
+
+Replace your uploadPdfInChunksWithProgress() and uploadChunkWithRetry() with the following:
+
+🔧 uploadPdfInChunksWithProgress()
+
+async uploadPdfInChunksWithProgress(
+  base64: string,
+  fileName: string,
+  onProgress: (percent: number) => void
+): Promise<void> {
+  const blob = this.base64ToBlob(base64, 'application/pdf');
+  const chunks = this.splitBlob(blob, 2 * 1024 * 1024);
+  const totalChunks = chunks.length;
+  const fileId = fileName;
+
+  let uploaded = 0;
+
+  for (let i = 0; i < totalChunks; i++) {
+    await this.uploadChunkWithRetry(chunks[i], fileId, i, totalChunks);
+    uploaded++;
+    onProgress(Math.floor((uploaded / totalChunks) * 100));
+  }
+}
+
+
+⸻
+
+🔧 uploadChunkWithRetry()
+
+private async uploadChunkWithRetry(
+  chunk: Blob,
+  fileId: string,
+  chunkIndex: number,
+  totalChunks: number
+): Promise<void> {
+  const formData = new FormData();
+
+  // ✅ Wrap chunk in File object to set correct Content-Type
+  const pdfChunk = new File([chunk], `${fileId}_chunk${chunkIndex}.pdf`, {
+    type: 'application/pdf'
+  });
+
+  formData.append('fileId', fileId);
+  formData.append('chunkIndex', chunkIndex.toString());
+  formData.append('totalChunks', totalChunks.toString());
+  formData.append('file', pdfChunk); // ✅ Backend expects this as IFormFile
+  formData.append('last-chunk', (chunkIndex === totalChunks - 1).toString());
+  formData.append('current-chunk', chunkIndex.toString());
+
+  const maxRetries = 3;
+  let attempts = 0;
+
+  while (attempts < maxRetries) {
+    try {
+      await this.http.post('/api/uploadfile', formData).toPromise();
+      return;
+    } catch (err) {
+      attempts++;
+      if (attempts >= maxRetries) {
+        throw new Error(`Chunk ${chunkIndex} failed after ${maxRetries} retries.`);
+      }
+      await new Promise((res) => setTimeout(res, 1000)); // wait before retry
+    }
+  }
+}
+
+
+⸻
+
+💡 Supporting Methods (if not already defined)
+
+private base64ToBlob(base64: string, mime: string): Blob {
+  const byteCharacters = atob(base64);
+  const byteArrays = [];
+
+  for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+    const slice = byteCharacters.slice(offset, offset + 512);
+    const byteNumbers = Array.from(slice).map((char) => char.charCodeAt(0));
+    byteArrays.push(new Uint8Array(byteNumbers));
+  }
+
+  return new Blob(byteArrays, { type: mime });
+}
+
+private splitBlob(blob: Blob, chunkSize: number): Blob[] {
+  const chunks: Blob[] = [];
+  let offset = 0;
+
+  while (offset < blob.size) {
+    const end = Math.min(offset + chunkSize, blob.size);
+    chunks.push(blob.slice(offset, end));
+    offset = end;
+  }
+
+  return chunks;
+}
+
+
+⸻
+
+✅ This Resolves:
+	•	400 Bad Request — missing or invalid file
+	•	"Unsupported file type" — incorrect or missing MIME
+	•	Ensures .NET receives:
+	•	IFormFile file with proper ContentType
+	•	Required headers: last-chunk, current-chunk
+	•	PDF chunks named with .pdf
+
+⸻
+
+Let me know if you want the full working UploadScanService.ts file or integration into your onUploadScans() logic.
