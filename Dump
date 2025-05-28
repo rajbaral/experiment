@@ -1,3 +1,42 @@
+async onUploadScans(): Promise<void> {
+  if (!this.scannedDocuments.length || !this.scanDocumentsForm.valid) return;
+
+  this.isUploading = true;
+  let allSuccessful = true;
+
+  const batchDescription: string = this.scanDocumentsForm.get('input')?.value || '';
+  const sourceType: string = this.scanDocumentsForm.get('multiSelect')?.value?.[0]?.value || '';
+
+  for (const doc of this.scannedDocuments) {
+    const fileName = doc.name;
+    const base64Data = doc.url.replace('data:application/pdf;base64,', '');
+    this.uploadProgressMap[fileName] = 0;
+
+    try {
+      await this.uploadScanService.uploadPdfInChunksWithProgress(
+        base64Data,
+        fileName,
+        (progress) => this.uploadProgressMap[fileName] = progress,
+        batchDescription,
+        sourceType
+      );
+    } catch (err) {
+      allSuccessful = false;
+      console.error(`Upload failed for ${fileName}:`, err);
+    }
+  }
+
+  this.isUploading = false;
+
+  if (allSuccessful) {
+    this.showSuccessNotification('All uploads complete.', 'success');
+  } else {
+    this.showSuccessNotification('Some documents failed to upload. Please try again.', 'error');
+  }
+}
+
+
+
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { v4 as uuidv4 } from 'uuid';
