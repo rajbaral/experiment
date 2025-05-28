@@ -1,3 +1,107 @@
+import { HttpClient } from '@angular/common/http';
+import { Injectable } from '@angular/core';
+import { v4 as uuidv4 } from 'uuid';
+
+@Injectable({ providedIn: 'root' })
+export class UploadScanService {
+  private readonly apiUrl = '/api/uploadfile';
+
+  constructor(private http: HttpClient) {}
+
+  async uploadPdfInChunksWithProgress(
+    base64: string,
+    originalFileName: string,
+    onProgress: (percent: number) => void,
+    batchDescription: string,
+    sourceType: string
+  ): Promise<void> {
+    const blob = this.base64ToBlob(base64, 'application/pdf');
+    const chunks = this.splitBlob(blob, 2 * 1024 * 1024);
+    const totalChunks = chunks.length;
+    const guid = uuidv4();
+    const fileId = `${guid}_${originalFileName.replace(/\.pdf$/i, '')}`;
+
+    let uploaded = 0;
+
+    for (let i = 0; i < totalChunks; i++) {
+      await this.uploadChunkWithRetry(chunks[i], fileId, i, totalChunks, batchDescription, sourceType);
+      uploaded++;
+      onProgress(Math.floor((uploaded / totalChunks) * 100));
+    }
+  }
+
+  private async uploadChunkWithRetry(
+    chunk: Blob,
+    fileId: string,
+    chunkIndex: number,
+    totalChunks: number,
+    batchDescription: string,
+    sourceType: string
+  ): Promise<void> {
+    const formData = new FormData();
+    const pdfChunk = new File(
+      [chunk],
+      `${fileId}_chunk${chunkIndex}.pdf`,
+      { type: 'application/pdf' }
+    );
+
+    formData.append('file', pdfChunk); // Required by backend IFormFile
+    formData.append('fileId', fileId);
+    formData.append('chunkIndex', chunkIndex.toString());
+    formData.append('totalChunks', totalChunks.toString());
+    formData.append('last-chunk', (chunkIndex === totalChunks - 1).toString());
+    formData.append('current-chunk', chunkIndex.toString());
+
+    // ✅ Additional fields for DB
+    formData.append('batchDescription', batchDescription);
+    formData.append('sourceType', sourceType);
+
+    const maxRetries = 3;
+    let attempts = 0;
+
+    while (attempts < maxRetries) {
+      try {
+        await this.http.post(this.apiUrl, formData).toPromise();
+        return;
+      } catch (err) {
+        attempts++;
+        if (attempts >= maxRetries) {
+          throw new Error(`Chunk ${chunkIndex} failed after ${maxRetries} retries.`);
+        }
+        await new Promise((res) => setTimeout(res, 1000));
+      }
+    }
+  }
+
+  private base64ToBlob(base64: string, mime: string): Blob {
+    const byteCharacters = atob(base64);
+    const byteArrays = [];
+
+    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+      const slice = byteCharacters.slice(offset, offset + 512);
+      const byteNumbers = Array.from(slice).map((char) => char.charCodeAt(0));
+      byteArrays.push(new Uint8Array(byteNumbers));
+    }
+
+    return new Blob(byteArrays, { type: mime });
+  }
+
+  private splitBlob(blob: Blob, chunkSize: number): Blob[] {
+    const chunks: Blob[] = [];
+    let offset = 0;
+
+    while (offset < blob.size) {
+      const end = Math.min(offset + chunkSize, blob.size);
+      chunks.push(blob.slice(offset, end));
+      offset = end;
+    }
+
+    return chunks;
+  }
+}
+
+
+
 Perfect — here’s the enhanced Angular solution for your scan upload flow with:
 	1.	Progress bar for each scanned file
 	2.	Disable the Upload button during upload
