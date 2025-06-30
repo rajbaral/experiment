@@ -13,6 +13,18 @@ const scanMetadata = {
   ctrlPaperSource
 };
 
+const scannedPdfs = scanner.getScannedImages(response, true, false);
+const totalPages = await this.getPdfPageCount(scannedPdfs[0].src);
+
+// Determine if duplex was used by checking for 2 pages per sheet
+let paperSource = 'Unknown';
+if (totalPages > 1) {
+  // Assume duplex if even number of pages and scanner is known to support duplex
+  paperSource = (totalPages % 2 === 0) ? 'Feeder (Both Sides)' : 'Feeder (Front Sides Only)';
+} else {
+  paperSource = 'Feeder (Front Sides Only)';
+}
+
 
 
 async displayImagesOnPage(successful: boolean, msg: string, response: any): Promise<void> {
