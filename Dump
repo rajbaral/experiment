@@ -12,3 +12,61 @@ const scanMetadata = {
   scanPageType,
   ctrlPaperSource
 };
+
+
+
+async displayImagesOnPage(successful: boolean, msg: string, response: any): Promise<void> {
+  if (!successful) {
+    console.error('Failed: ' + msg);
+    return;
+  }
+
+  if (successful && msg != null && msg.toLowerCase().indexOf('user cancel') >= 0) {
+    console.info('User cancelled');
+    return;
+  }
+
+  const scannedPdfs = scanner.getScannedImages(response, true, false);
+
+  // Total page count (for first PDF to determine scanType)
+  const totalPages = await this.getPdfPageCount(scannedPdfs[0].src);
+  const scanType = totalPages === 1 ? 'single' : 'multi';
+
+  // Your blank separator logic
+  const docs: string[][] = [];
+  let current: string[] = [];
+  for (let img of scannedPdfs) {
+    if (/* blank separator condition */) {
+      if (current.length > 0) docs.push(current);
+      current = [];
+    } else {
+      current.push(img);
+    }
+  }
+  if (current.length > 0) docs.push(current);
+
+  const isBatch = docs.length > 1;
+
+  // Paper source detection
+  let paperSource = 'Unknown';
+  if (scannedPdfs.length > 0) {
+    const info = scannedPdfs[0].image_info || {};
+    const caps = scannedPdfs[0].caps || {};
+    paperSource = info.Source || (caps.ICAP_FEEDERENABLED ? 'Feeder' : 'Flatbed');
+  }
+
+  // Store metadata
+  this.scanMetadata = {
+    totalPages,
+    scanType,
+    isBatch,
+    paperSource
+  };
+  console.log(this.scanMetadata);
+
+  // Process each image
+  for (let i = 0; i < scannedPdfs.length; i++) {
+    const scannedImage = scannedPdfs[i];
+    this.processScannedImage(scannedImage);
+  }
+}
