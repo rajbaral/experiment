@@ -1,1 +1,58 @@
+import { Injectable } from '@angular/core';
 
+declare const Dynamsoft: any;
+
+@Injectable({
+  providedIn: 'root'
+})
+export class DynamsoftScannerService {
+  DWObject: any;
+  isReady = false;
+
+  constructor() {
+    this.init();
+  }
+
+  async init(): Promise<void> {
+    if (typeof Dynamsoft === 'undefined' || !Dynamsoft.DWT) {
+      console.error('Dynamsoft WebTWAIN not loaded!');
+      return;
+    }
+
+    // 🔧 Set resource path BEFORE Load()
+    Dynamsoft.DWT.ResourcesPath = 'assets/dwt-resources'; // ✅ You must copy this folder
+
+    // 🔧 Optional license (for evaluation)
+    // Dynamsoft.DWT.ProductKey = 'LICENSE_KEY_HERE';
+
+    await Dynamsoft.DWT.Load();
+
+    return new Promise((resolve, reject) => {
+      Dynamsoft.DWT.CreateDWTObjectEx(
+        { WebTwainId: 'dwtcontrol' },
+        (obj: any) => {
+          this.DWObject = obj;
+          this.isReady = true;
+          console.log('✅ Scanner ready!');
+          resolve(obj);
+        },
+        (err: any) => {
+          console.error('❌ Failed to init scanner', err);
+          reject(err);
+        }
+      );
+    });
+  }
+
+  acquire(): void {
+    if (!this.isReady || !this.DWObject) {
+      console.warn('⚠️ Scanner not ready');
+      return;
+    }
+
+    this.DWObject.SelectSourceAsync().then(() => {
+      this.DWObject.OpenSource();
+      this.DWObject.AcquireImage();
+    });
+  }
+}
