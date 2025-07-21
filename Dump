@@ -1,3 +1,33 @@
+getScannedImagesAsBlobArray(): Promise<Blob[]> {
+  return new Promise((resolve, reject) => {
+    if (!this.dwtObject || !this.isReady) {
+      reject('Scanner not ready.');
+      return;
+    }
+
+    const blobs: Blob[] = [];
+    const total = this.dwtObject.HowManyImagesInBuffer;
+    let processed = 0;
+
+    for (let i = 0; i < total; i++) {
+      this.dwtObject.ConvertToBlob(
+        [i],
+        Dynamsoft.DWT.EnumDWT_ImageType.IT_JPG,
+        (blob) => {
+          blobs.push(blob);
+          processed++;
+          if (processed === total) resolve(blobs);
+        },
+        (_code, msg) => {
+          reject(`Blob conversion failed: ${msg}`);
+        }
+      );
+    }
+  });
+}
+
+
+
 component html
 
 <!-- eslint-disable @angular-eslint/template/label-has-associated-control -->
