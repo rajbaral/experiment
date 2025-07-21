@@ -1,34 +1,307 @@
-getScannedImagesAsBlobArray(): Promise<Blob[]> {
-  return new Promise((resolve, reject) => {
-    if (!this.dwtObject || !this.isReady) {
-      reject('Scanner not ready.');
+import { Component, OnDestroy, OnInit, ViewEncapsulation } from '@angular/core';
+import { FormControl, FormGroup, Validators } from '@angular/forms';
+import { Subscription } from 'rxjs';
+import { UploadScanService } from '@shared/services/upload-scan/upload-scan.service';
+import { FeatureFlagService } from '@shared/services/feature-flags/feature-flag.service';
+import { UITKAlertService } from '@uitk/angular';
+import { OptumSharedAuthService } from 'optum-shared-auth';
+import { DynamsoftScannerService } from '@shared/services/dynamsoft-scanner/dynamsoft-scanner.service';
+import { ConfigurationService } from '@shared/services/configuration-service/configuration.service';
+
+@Component({
+  selector: 'optum-dynamsoft-scan-document',
+  templateUrl: './dynamsoft-scan-document.component.html',
+  styleUrls: ['./dynamsoft-scan-document.component.scss'],
+  encapsulation: ViewEncapsulation.None
+})
+export class DynamsoftScanDocumentComponent implements OnInit, OnDestroy {
+  private _isLoggedIn = true;
+  private _username = '';
+  private readonly subscription = new Subscription();
+
+  containerId = 'dwtcontrolContainer';
+  isDynamsoftReady = false;
+
+  scannedDocuments: { name: string, url: string, type: string }[] = [];
+  isUploading = false;
+  uploadProgressMap: { [fileName: string]: number } = {};
+
+  scanDocumentsForm = new FormGroup({
+    input: new FormControl('', Validators.required),
+    multiSelect: new FormControl([{ label: 'Dental Claims', value: 'dental_claims' }])
+  });
+
+  scanMetadataList: {
+    totalPages: number;
+    scanType: string;
+    isBatch: boolean;
+    paperSource: string;
+  }[] = [];
+
+  grandTotalPages = 0;
+  selectedPdfUrl: string | null = null;
+  private pdfBlobUrl: string | null = null;
+
+  deleteWarningDialog = { show: false };
+  pdfPreviewDialog = { show: false };
+  retryWarningDialog = { show: false };
+
+  deleteIndex: number | null = null;
+
+  batchInputText = 'Batch Description';
+  batchRequiredText = 'Batch Description is required';
+  sourceTypeLabelText = 'Source Type';
+  sources = [{ label: 'Dental Claims', value: 'dental' }];
+
+  confirmDeleteModalContent = 'Are you sure you want to delete this item?';
+  confirmDeleteModalDeleteBtnText = 'Delete';
+  confirmDeleteModalCancelBtnText = 'Cancel';
+  confirmDeleteModalHeaderText = 'Confirm Item Deletion';
+  pdfPreviewModalHeaderText = 'Preview Scanned Claim PDF';
+  failureRetryButtonText = 'Retry Upload';
+  failureRetryModalCancelBtnText = 'Cancel';
+  failureRetryModalHeaderText = ' Upload Unsuccessful';
+
+  constructor(
+    private uploadScanService: UploadScanService,
+    public featureFlagService: FeatureFlagService,
+    private readonly alertService: UITKAlertService,
+    private readonly authService: OptumSharedAuthService,
+    private readonly scannerService: DynamsoftScannerService,
+    private readonly configService: ConfigurationService
+  ) {}
+
+  get loggedIn(): boolean {
+    return this._isLoggedIn;
+  }
+
+  get username(): string {
+    return this._username;
+  }
+
+  ngOnInit(): void {
+    if (this.authService.isLoggedIn) {
+      this._isLoggedIn = true;
+      this._username = this.authService.getUserName() ?? '';
+    }
+
+    this.subscription.add(
+      this.authService.loginChanged.subscribe((isLoggedIn: boolean) => {
+        this._isLoggedIn = isLoggedIn;
+        this._username = isLoggedIn ? this.authService.getUserName() ?? '' : '';
+      })
+    );
+
+    this.initializeScanner();
+  }
+
+  private initializeScanner(): void {
+    this.scannerService.initialize(this.containerId);
+    const checkReady = () => {
+      if (this.scannerService.isScannerReady) {
+        this.isDynamsoftReady = true;
+      } else {
+        setTimeout(checkReady, 1000);
+      }
+    };
+    checkReady();
+  }
+
+  acquireImage(): void {
+    this.scannerService.acquireImage(
+      () => this.processAcquiredImages(),
+      (err) => this.showErrorMessage(err)
+    );
+  }
+
+  private processAcquiredImages(): void {
+    const imageCount = this.scannerService.getImageCount();
+    if (!this.scannerService.isScannerReady) {
+      this.showErrorMessage('Scanner not ready.');
       return;
     }
-
-    const blobs: Blob[] = [];
-    const total = this.dwtObject.HowManyImagesInBuffer;
-    let processed = 0;
-
-    for (let i = 0; i < total; i++) {
-      this.dwtObject.ConvertToBlob(
-        [i],
-        Dynamsoft.DWT.EnumDWT_ImageType.IT_JPG,
-        (blob) => {
-          blobs.push(blob);
-          processed++;
-          if (processed === total) resolve(blobs);
-        },
-        (_code, msg) => {
-          reject(`Blob conversion failed: ${msg}`);
-        }
-      );
+    if (imageCount === 0) {
+      this.showErrorMessage('No images to process.');
+      return;
     }
-  });
+    const indices = Array.from({ length: imageCount }, (_, i) => i);
+    this.scannerService.convertToPDFBlob(
+      indices,
+      (blob: Blob) => {
+        if (blob) {
+          this.addScannedDocument(blob, imageCount);
+        } else {
+          this.showErrorMessage('Failed to retrieve PDF blob.');
+        }
+      },
+      (err: string) => this.showErrorMessage(err)
+    );
+  }
+
+  stageScannedDocs() {
+    this.scannerService.getScannedImagesAsBlobArray().then((blobs) => {
+      // Handle the array of blobs
+      const newDocs = blobs.map((blob, index) => ({
+        name: `scanned_document_${Date.now()}_${index}.pdf`,
+        url: URL.createObjectURL(blob),
+        type: 'application/pdf'
+      }));
+      this.scannedDocuments.push(...newDocs);
+    });
+  }
+
+  private addScannedDocument(pdfBlob: Blob, pageCount: number): void {
+    const sourceType = this.scanDocumentsForm.get('multiSelect')?.value?.[0]?.value || 'dental_claims';
+    const dateStr = new Date().toISOString().split('T')[0];
+    const index = this.scannedDocuments.length + 1;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      this.scannedDocuments.push({
+        name: `${sourceType}_${dateStr}_${index}.pdf`,
+        url: base64,
+        type: 'application/pdf'
+      });
+      this.grandTotalPages += pageCount;
+      this.scanMetadataList.push({
+        totalPages: pageCount,
+        scanType: pageCount === 1 ? 'single' : 'multi',
+        isBatch: false,
+        paperSource: 'Scanner'
+      });
+      this.showSuccessMessage(`Successfully scanned ${pageCount} page(s)!`);
+    };
+    reader.readAsDataURL(pdfBlob);
+  }
+
+  private showErrorMessage(message: string): void {
+    this.alertService.showNotification({
+      id: 'error-alert',
+      variant: 'info',
+      content: message,
+      duration: 5000
+    });
+  }
+
+  private showSuccessMessage(message: string): void {
+    this.alertService.showNotification({
+      id: 'success-alert',
+      variant: 'success',
+      content: message,
+      duration: 5000
+    });
+  }
+
+  clearScans(): void {
+    this.scannedDocuments = [];
+    this.scanMetadataList = [];
+    this.grandTotalPages = 0;
+    this.scannerService.clearImages();
+  }
+
+  get showScanner(): boolean {
+    return this.featureFlagService.isScannerJsEnabled;
+  }
+
+  ngOnDestroy(): void {
+    this.subscription.unsubscribe();
+  }
+
+  async uploadScans(): Promise<void> {
+    if (!this.scannedDocuments.length || !this.scanDocumentsForm.valid) return;
+    this.isUploading = true;
+    let allSuccessful = true;
+    const batchDescription: string = this.scanDocumentsForm.get('input')?.value || '';
+    const sourceType: string = this.scanDocumentsForm.get('multiSelect')?.value?.[0]?.value || '';
+    for (let i = 0; i < this.scannedDocuments.length; i++) {
+      const doc = this.scannedDocuments[i];
+      const metadata = this.scanMetadataList[i];
+      const fileName = doc.name;
+      const base64Data = doc.url.replace('data:application/pdf;base64,', '');
+      const enrichedMetadata = { ...metadata, batchDescription, sourceType, fileName };
+      this.uploadProgressMap[fileName] = 0;
+      try {
+        await this.uploadScanService.uploadPdfInChunksWithProgress(
+          base64Data,
+          fileName,
+          (progress: number) => this.uploadProgressMap[fileName] = progress,
+          batchDescription,
+          sourceType,
+          enrichedMetadata
+        );
+      } catch {
+        allSuccessful = false;
+      }
+    }
+    this.isUploading = false;
+    if (allSuccessful) {
+      this.scanDocumentsForm.reset();
+      this.scanDocumentsForm.get('multiSelect')?.setValue(this.scanDocumentsForm.get('multiSelect')?.value ?? null);
+      this.scannedDocuments = [];
+      this.grandTotalPages = 0;
+      this.showSuccessMessage('Documents and metadata uploaded successfully!');
+    } else {
+      this.retryWarningDialog.show = true;
+    }
+  }
+
+  openConfirmDeleteDialog(index: number): void {
+    this.deleteIndex = index;
+    this.deleteWarningDialog.show = true;
+  }
+
+  cancelBtnConfirmDeleteDialog(): void {
+    this.deleteWarningDialog.show = false;
+    this.deleteIndex = null;
+  }
+
+  confirmDelete(): void {
+    if (this.deleteIndex !== null && this.deleteIndex >= 0) {
+      this.scannedDocuments.splice(this.deleteIndex, 1);
+      this.scanMetadataList.splice(this.deleteIndex, 1);
+      this.grandTotalPages = this.scanMetadataList.reduce((sum, meta) => sum + meta.totalPages, 0);
+    }
+    this.cancelBtnConfirmDeleteDialog();
+  }
+
+  openPdfPreview(url: string): void {
+    if (this.pdfBlobUrl) {
+      URL.revokeObjectURL(this.pdfBlobUrl);
+      this.pdfBlobUrl = null;
+    }
+    this.pdfBlobUrl = this.dataURLToBlobUrl(url);
+    this.selectedPdfUrl = this.pdfBlobUrl;
+    this.pdfPreviewDialog.show = true;
+  }
+
+  private dataURLToBlobUrl(dataUrl: string): string {
+    const arr = dataUrl.split(',');
+    const mime = arr[0].match(/:(.*?);/)?.[1] || 'application/pdf';
+    const bstr = atob(arr[1]);
+    const u8arr = new Uint8Array(bstr.length);
+    for (let i = 0; i < bstr.length; i++) u8arr[i] = bstr.charCodeAt(i);
+    return URL.createObjectURL(new Blob([u8arr], { type: mime }));
+  }
+
+  closePdfPreview(): void {
+    this.pdfPreviewDialog.show = false;
+    if (this.pdfBlobUrl) {
+      URL.revokeObjectURL(this.pdfBlobUrl);
+      this.pdfBlobUrl = null;
+    }
+    this.selectedPdfUrl = null;
+  }
+
+  failureRetryCloseDialog(): void {
+    this.retryWarningDialog.show = false;
+  }
+
+  retryUploadFromDialog(): void {
+    this.uploadScans();
+    this.failureRetryCloseDialog();
+  }
 }
 
-
-
-component html
 
 <!-- eslint-disable @angular-eslint/template/label-has-associated-control -->
 <div class="main-section">
@@ -48,7 +321,15 @@ component html
           <br>
           <!-- Scan button -->
           <button class="uitk-c-button uitk-c-button--secondary uitk-c-button--sm" (click)="acquireImage()">Scan</button>
-          <div id="dwtcontrolContainer"></div>
+          <div id="dwtcontrolContainer">
+            <button
+              id="primary-btn"
+              type="button"
+              class="uitk-c-button uitk-c-button--primary uitk-u-margin--xxs"
+              (click)="stageScannedDocs()">
+            Save Scanned Documents
+          </button>
+          </div>
         </div>
       </div>
       <div class="uitk-l-grid__row">
@@ -225,303 +506,6 @@ component html
 </div>
 
 
-component.ts
-
-import { Component, OnDestroy, OnInit, ViewEncapsulation } from '@angular/core';
-import { FormControl, FormGroup, Validators } from '@angular/forms';
-import { Subscription } from 'rxjs';
-import { UploadScanService } from '@shared/services/upload-scan/upload-scan.service';
-import { FeatureFlagService } from '@shared/services/feature-flags/feature-flag.service';
-import { UITKAlertService } from '@uitk/angular';
-import { OptumSharedAuthService } from 'optum-shared-auth';
-import { DynamsoftScannerService } from '@shared/services/dynamsoft-scanner/dynamsoft-scanner.service';
-import { ConfigurationService } from '@shared/services/configuration-service/configuration.service';
-
-@Component({
-  selector: 'optum-dynamsoft-scan-document',
-  templateUrl: './dynamsoft-scan-document.component.html',
-  styleUrls: ['./dynamsoft-scan-document.component.scss'],
-  encapsulation: ViewEncapsulation.None
-})
-export class DynamsoftScanDocumentComponent implements OnInit, OnDestroy {
-  private _isLoggedIn = true;
-  private _username = '';
-  private readonly subscription = new Subscription();
-
-  containerId = 'dwtcontrolContainer';
-  isDynamsoftReady = false;
-
-  scannedDocuments: { name: string, url: string, type: string }[] = [];
-  isUploading = false;
-  uploadProgressMap: { [fileName: string]: number } = {};
-
-  scanDocumentsForm = new FormGroup({
-    input: new FormControl('', Validators.required),
-    multiSelect: new FormControl([{ label: 'Dental Claims', value: 'dental_claims' }])
-  });
-
-  scanMetadataList: {
-    totalPages: number;
-    scanType: string;
-    isBatch: boolean;
-    paperSource: string;
-  }[] = [];
-
-  grandTotalPages = 0;
-  selectedPdfUrl: string | null = null;
-  private pdfBlobUrl: string | null = null;
-
-  deleteWarningDialog = { show: false };
-  pdfPreviewDialog = { show: false };
-  retryWarningDialog = { show: false };
-
-  deleteIndex: number | null = null;
-
-  batchInputText = 'Batch Description';
-  batchRequiredText = 'Batch Description is required';
-  sourceTypeLabelText = 'Source Type';
-  sources = [{ label: 'Dental Claims', value: 'dental' }];
-
-  confirmDeleteModalContent = 'Are you sure you want to delete this item?';
-  confirmDeleteModalDeleteBtnText = 'Delete';
-  confirmDeleteModalCancelBtnText = 'Cancel';
-  confirmDeleteModalHeaderText = 'Confirm Item Deletion';
-  pdfPreviewModalHeaderText = 'Preview Scanned Claim PDF';
-  failureRetryButtonText = 'Retry Upload';
-  failureRetryModalCancelBtnText = 'Cancel';
-  failureRetryModalHeaderText = ' Upload Unsuccessful';
-
-  constructor(
-    private uploadScanService: UploadScanService,
-    public featureFlagService: FeatureFlagService,
-    private readonly alertService: UITKAlertService,
-    private readonly authService: OptumSharedAuthService,
-    private readonly scannerService: DynamsoftScannerService,
-    private readonly configService: ConfigurationService
-  ) {}
-
-  get loggedIn(): boolean {
-    return this._isLoggedIn;
-  }
-
-  get username(): string {
-    return this._username;
-  }
-
-  ngOnInit(): void {
-    if (this.authService.isLoggedIn) {
-      this._isLoggedIn = true;
-      this._username = this.authService.getUserName() ?? '';
-    }
-
-    this.subscription.add(
-      this.authService.loginChanged.subscribe((isLoggedIn: boolean) => {
-        this._isLoggedIn = isLoggedIn;
-        this._username = isLoggedIn ? this.authService.getUserName() ?? '' : '';
-      })
-    );
-
-    this.initializeScanner();
-  }
-
-  private initializeScanner(): void {
-    this.scannerService.initialize(this.containerId);
-    const checkReady = () => {
-      if (this.scannerService.isScannerReady) {
-        this.isDynamsoftReady = true;
-      } else {
-        setTimeout(checkReady, 1000);
-      }
-    };
-    checkReady();
-  }
-
-  acquireImage(): void {
-    this.scannerService.acquireImage(
-      () => this.processAcquiredImages(),
-      (err) => this.showErrorMessage(err)
-    );
-  }
-
-  private processAcquiredImages(): void {
-    const imageCount = this.scannerService.getImageCount();
-    if (!this.scannerService.isScannerReady) {
-      this.showErrorMessage('Scanner not ready.');
-      return;
-    }
-    if (imageCount === 0) {
-      this.showErrorMessage('No images to process.');
-      return;
-    }
-
-    const indices = Array.from({ length: imageCount }, (_, i) => i);
-    this.scannerService.convertToPDFBlob(
-      indices,
-      (blob: Blob) => {
-        if (blob) {
-          this.addScannedDocument(blob, imageCount);
-        } else {
-          this.showErrorMessage('Failed to retrieve PDF blob.');
-        }
-      },
-      (err: string) => this.showErrorMessage(err)
-    );
-  }
-
-  private addScannedDocument(pdfBlob: Blob, pageCount: number): void {
-    const sourceType = this.scanDocumentsForm.get('multiSelect')?.value?.[0]?.value || 'dental_claims';
-    const dateStr = new Date().toISOString().split('T')[0];
-    const index = this.scannedDocuments.length + 1;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      this.scannedDocuments.push({
-        name: `${sourceType}_${dateStr}_${index}.pdf`,
-        url: base64,
-        type: 'application/pdf'
-      });
-      this.grandTotalPages += pageCount;
-      this.scanMetadataList.push({
-        totalPages: pageCount,
-        scanType: pageCount === 1 ? 'single' : 'multi',
-        isBatch: false,
-        paperSource: 'Scanner'
-      });
-      this.showSuccessMessage(`Successfully scanned ${pageCount} page(s)!`);
-    };
-    reader.readAsDataURL(pdfBlob);
-  }
-
-  private showErrorMessage(message: string): void {
-    this.alertService.showNotification({
-      id: 'error-alert',
-      variant: 'info',
-      content: message,
-      duration: 5000
-    });
-  }
-
-  private showSuccessMessage(message: string): void {
-    this.alertService.showNotification({
-      id: 'success-alert',
-      variant: 'success',
-      content: message,
-      duration: 5000
-    });
-  }
-
-  clearScans(): void {
-    this.scannedDocuments = [];
-    this.scanMetadataList = [];
-    this.grandTotalPages = 0;
-    this.scannerService.clearImages();
-  }
-
-  get showScanner(): boolean {
-    return this.featureFlagService.isScannerJsEnabled;
-  }
-
-  ngOnDestroy(): void {
-    this.subscription.unsubscribe();
-  }
-
-  async uploadScans(): Promise<void> {
-    if (!this.scannedDocuments.length || !this.scanDocumentsForm.valid) return;
-    this.isUploading = true;
-    let allSuccessful = true;
-    const batchDescription: string = this.scanDocumentsForm.get('input')?.value || '';
-    const sourceType: string = this.scanDocumentsForm.get('multiSelect')?.value?.[0]?.value || '';
-    for (let i = 0; i < this.scannedDocuments.length; i++) {
-      const doc = this.scannedDocuments[i];
-      const metadata = this.scanMetadataList[i];
-      const fileName = doc.name;
-      const base64Data = doc.url.replace('data:application/pdf;base64,', '');
-      const enrichedMetadata = { ...metadata, batchDescription, sourceType, fileName };
-      this.uploadProgressMap[fileName] = 0;
-      try {
-        await this.uploadScanService.uploadPdfInChunksWithProgress(
-          base64Data,
-          fileName,
-          (progress: number) => this.uploadProgressMap[fileName] = progress,
-          batchDescription,
-          sourceType,
-          enrichedMetadata
-        );
-      } catch {
-        allSuccessful = false;
-      }
-    }
-    this.isUploading = false;
-    if (allSuccessful) {
-      this.scanDocumentsForm.reset();
-      this.scanDocumentsForm.get('multiSelect')?.setValue(this.scanDocumentsForm.get('multiSelect')?.value ?? null);
-      this.scannedDocuments = [];
-      this.grandTotalPages = 0;
-      this.showSuccessMessage('Documents and metadata uploaded successfully!');
-    } else {
-      this.retryWarningDialog.show = true;
-    }
-  }
-
-  openConfirmDeleteDialog(index: number): void {
-    this.deleteIndex = index;
-    this.deleteWarningDialog.show = true;
-  }
-
-  cancelBtnConfirmDeleteDialog(): void {
-    this.deleteWarningDialog.show = false;
-    this.deleteIndex = null;
-  }
-
-  confirmDelete(): void {
-    if (this.deleteIndex !== null && this.deleteIndex >= 0) {
-      this.scannedDocuments.splice(this.deleteIndex, 1);
-      this.scanMetadataList.splice(this.deleteIndex, 1);
-      this.grandTotalPages = this.scanMetadataList.reduce((sum, meta) => sum + meta.totalPages, 0);
-    }
-    this.cancelBtnConfirmDeleteDialog();
-  }
-
-  openPdfPreview(url: string): void {
-    if (this.pdfBlobUrl) {
-      URL.revokeObjectURL(this.pdfBlobUrl);
-      this.pdfBlobUrl = null;
-    }
-    this.pdfBlobUrl = this.dataURLToBlobUrl(url);
-    this.selectedPdfUrl = this.pdfBlobUrl;
-    this.pdfPreviewDialog.show = true;
-  }
-
-  private dataURLToBlobUrl(dataUrl: string): string {
-    const arr = dataUrl.split(',');
-    const mime = arr[0].match(/:(.*?);/)?.[1] || 'application/pdf';
-    const bstr = atob(arr[1]);
-    const u8arr = new Uint8Array(bstr.length);
-    for (let i = 0; i < bstr.length; i++) u8arr[i] = bstr.charCodeAt(i);
-    return URL.createObjectURL(new Blob([u8arr], { type: mime }));
-  }
-
-  closePdfPreview(): void {
-    this.pdfPreviewDialog.show = false;
-    if (this.pdfBlobUrl) {
-      URL.revokeObjectURL(this.pdfBlobUrl);
-      this.pdfBlobUrl = null;
-    }
-    this.selectedPdfUrl = null;
-  }
-
-  failureRetryCloseDialog(): void {
-    this.retryWarningDialog.show = false;
-  }
-
-  retryUploadFromDialog(): void {
-    this.uploadScans();
-    this.failureRetryCloseDialog();
-  }
-}
-
-
-service
 import { Injectable } from '@angular/core';
 import Dynamsoft from 'dwt';
 import { WebTwain } from 'dwt/dist/types/WebTwain';
@@ -628,143 +612,32 @@ export class DynamsoftScannerService {
   getImageCount(): number {
     return this.dwtObject?.HowManyImagesInBuffer ?? 0;
   }
-}
 
+  getScannedImagesAsBlobArray(): Promise<Blob[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.dwtObject || !this.isReady) {
+        reject('Scanner not ready.');
+        return;
+      }
 
-app.component
-import { Component, OnDestroy, OnInit } from '@angular/core';
-import { ConfigurationService } from '@shared/services/configuration-service/configuration.service';
-import { ApplicationInsightsService, OptumSharedAuthService } from 'optum-shared-auth';
-import { ApplicationInsightsLoggingService } from '@shared/services/application-insights-logging.service';
-import { Subscription } from 'rxjs';
-import { FeatureFlagService } from '@shared/services/feature-flags/feature-flag.service';
+      const blobs: Blob[] = [];
+      const total = this.dwtObject.HowManyImagesInBuffer;
+      let processed = 0;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-declare const scanner: any;
-declare const Dynamsoft: any;
-
-@Component({
-  selector: 'optum-app-root',
-  templateUrl: './app.component.html',
-  styleUrls: ['./app.component.scss'],
-})
-export class AppComponent implements OnInit, OnDestroy {
-  public username: string | undefined = undefined;
-  private readonly subscription: Subscription = new Subscription();
-  private isLoggedIn = false;
-
-  public get environment(): string {
-    return this.configurationService.APP_CONFIG.environment;
-  }
-
-  constructor(
-    private _authService: OptumSharedAuthService,
-    private appinsightsLoggingService: ApplicationInsightsLoggingService,
-    private configurationService: ConfigurationService,
-    private featureFlagService: FeatureFlagService
-  ) {}
-
-  ngOnInit(): void {
-    this.appinsightsLoggingService._logger.logPageView('Dental Scanner App initialized');
-
-    if (this._authService.isLoggedIn) {
-      this.isLoggedIn = true;
-      this.username = this._authService.getUserName() ?? '';
-    }
-
-    const loggedUserChangeSubscription = this._authService.loginChanged.subscribe((loggedIn) => {
-      this.username = loggedIn ? this._authService.getUserName() ?? '' : '';
-    });
-
-    this.subscription.add(loggedUserChangeSubscription);
-
-    this.loadScannerScript();
-    this.loadDynamsoftScript();
-
-    this.featureFlagService.loadFeatureFlags().subscribe();
-  }
-
-  private loadScannerScript(): void {
-    const existingScript = document.getElementById('asprise-scanner') as HTMLScriptElement;
-    if (!existingScript) {
-      this.appinsightsLoggingService._logger.logTrace('Loading ScannerJS Script');
-      const script = document.createElement('script');
-      script.src = 'https://cdn.asprise.com/scannerjs/scanner.js';
-      script.id = 'asprise-scanner';
-      script.type = 'text/javascript';
-      script.onload = () => {
-        this.applyScannerLicenseKey();
-        this.appinsightsLoggingService._logger.logEvent('Successfully loaded ScannerJS Script');
-      };
-      script.onerror = () => {
-        this.appinsightsLoggingService._logger.logException(
-          new Error('ScannerJS Script failed to load'),
-          1
+      for (let i = 0; i < total; i++) {
+        this.dwtObject.ConvertToBlob(
+          [i],
+          Dynamsoft.DWT.EnumDWT_ImageType.IT_JPG,
+          (blob) => {
+            blobs.push(blob);
+            processed++;
+            if (processed === total) resolve(blobs);
+          },
+          (_code, msg) => {
+            reject(`Blob conversion failed: ${msg}`);
+          }
         );
-      };
-      document.body.appendChild(script);
-    } else {
-      this.appinsightsLoggingService._logger.logTrace('ScannerJS Script already loaded');
-      this.applyScannerLicenseKey();
-    }
-  }
-
-  private loadDynamsoftScript(): void {
-    const existingScript = document.getElementById('dynamsoft-script') as HTMLScriptElement;
-    if (!existingScript) {
-      this.appinsightsLoggingService._logger.logTrace('Loading Dynamsoft Script');
-      const script = document.createElement('script');
-      script.src = 'https://unpkg.com/dwt@latest/dist/dynamsoft.webtwain.min.js';
-      script.id = 'dynamsoft-script';
-      script.type = 'text/javascript';
-      script.onload = () => {
-        this.configureDynamsoftResources();
-        this.setDynamsoftLicense();
-        this.appinsightsLoggingService._logger.logEvent('Successfully loaded Dynamsoft Script');
-      };
-      script.onerror = () => {
-        this.appinsightsLoggingService._logger.logException(
-          new Error('Dynamsoft Script failed to load'),
-          1
-        );
-      };
-      document.head.appendChild(script);
-    } else {
-      this.configureDynamsoftResources();
-      this.setDynamsoftLicense();
-    }
-  }
-
-  private configureDynamsoftResources(): void {
-    if (typeof Dynamsoft !== 'undefined') {
-      Dynamsoft.DWT.ResourcesPath = 'https://unpkg.com/dwt@latest/dist/';
-    }
-  }
-
-  private setDynamsoftLicense(): void {
-    if (typeof Dynamsoft !== 'undefined') {
-      Dynamsoft.DWT.ProductKey = this.configurationService.dynamsoftLicenseKey;
-    }
-  }
-
-  private applyScannerLicenseKey(): void {
-    if (typeof scanner !== 'undefined') {
-      scanner.licenseKey = this.configurationService.scannerLicenseKey;
-      this.appinsightsLoggingService._logger.logEvent('Scanner license key applied');
-    }
-  }
-
-  public login(): void {
-    this._authService.login().then(() => this._authService.completeLogin());
-  }
-
-  public logOut(): void {
-    this._authService.logout().then(() => {
-      this._authService.completeLogout();
+      }
     });
-  }
-
-  ngOnDestroy(): void {
-    this.subscription.unsubscribe();
   }
 }
