@@ -1,1 +1,118 @@
+import { Injectable } from '@angular/core';
+import Dynamsoft from 'dwt';
+import { WebTwain } from 'dwt/dist/types/WebTwain';
 
+@Injectable({
+  providedIn: 'root'
+})
+export class DynamsoftScannerService {
+  private dwtObject: WebTwain | null = null;
+  private isReady = false;
+
+  constructor(private configurationService: any) {} // Replace 'any' with your config type if needed
+
+  initialize(containerId: string): Promise<void> {
+    console.log('[DynamsoftScannerService] Initializing scanner...');
+    return new Promise((resolve, reject) => {
+      Dynamsoft.DWT.Containers = [{
+        WebTwainId: 'dwtObject',
+        ContainerId: containerId,
+        Width: '100%',
+        Height: '500px'
+      }];
+
+      Dynamsoft.DWT.RegisterEvent('OnWebTwainReady', () => {
+        console.log('[DynamsoftScannerService] OnWebTwainReady fired');
+        const dwt = Dynamsoft.DWT.GetWebTwain(containerId);
+
+        const startTime = Date.now();
+        const timeout = 10000;
+
+        const waitForSources = () => {
+          if (dwt && dwt.SourceCount > 0) {
+            this.dwtObject = dwt;
+            this.isReady = true;
+
+            // Inject full viewer UI into the same container
+            try {
+              dwt.Viewer.create(containerId);
+              console.log('[DynamsoftScannerService] Viewer UI created');
+            } catch (e) {
+              console.warn('[DynamsoftScannerService] Viewer creation failed:', e);
+            }
+
+            resolve();
+          } else if (Date.now() - startTime > timeout) {
+            reject('Scanner source detection timed out.');
+          } else {
+            setTimeout(waitForSources, 500);
+          }
+        };
+
+        waitForSources();
+      });
+
+      this.setDynamsoftLicense(); // Always call this before Load
+      Dynamsoft.DWT.Load();
+    });
+  }
+
+  private setDynamsoftLicense(): void {
+    if (typeof Dynamsoft !== 'undefined') {
+      Dynamsoft.DWT.ProductKey = this.configurationService.dynamsoftLicenseKey;
+    }
+  }
+
+  get isScannerReady(): boolean {
+    return this.isReady;
+  }
+
+  acquireImage(onSuccess: () => void, onError: (err: string) => void): void {
+    if (!this.dwtObject || !this.isReady) {
+      onError('Scanner not ready. Please wait for initialization.');
+      return;
+    }
+
+    this.dwtObject.AcquireImage({
+      IfShowUI: true,
+      IfFeederEnabled: false,
+      IfDuplexEnabled: false,
+      OnPostAllTransfers: onSuccess,
+      OnFailure: (_code: number, errorString: string) => {
+        onError('Scan failed: ' + errorString);
+      }
+    });
+  }
+
+  convertToPDFBlob(imageIndices: number[], onSuccess: (blob: Blob) => void, onError: (err: string) => void): void {
+    if (!this.dwtObject) {
+      onError('Scanner not ready.');
+      return;
+    }
+
+    this.dwtObject.ConvertToBlob(
+      imageIndices,
+      Dynamsoft.DWT.EnumDWT_ImageType.IT_PDF,
+      (blob: Blob) => {
+        if (blob) {
+          onSuccess(blob);
+        } else {
+          onError('Failed to retrieve PDF blob.');
+        }
+      },
+      (_code: number, errorString: string) => {
+        onError('Failed to retrieve PDF blob: ' + errorString);
+      }
+    );
+  }
+
+  clearImages(): void {
+    if (this.dwtObject && this.isReady) {
+      this.dwtObject.RemoveAllImages();
+    }
+  }
+
+  getImageCount(): number {
+    return this.dwtObject?.HowManyImagesInBuffer ?? 0;
+  }
+}
