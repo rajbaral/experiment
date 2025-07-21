@@ -1,4 +1,1 @@
 
-"scripts": [
-  "node_modules/dwt/dist/dynamsoft.webtwain.min.js"
-]
