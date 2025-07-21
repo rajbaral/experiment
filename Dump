@@ -1,6 +1,126 @@
 import { Injectable } from '@angular/core';
 import Dynamsoft from 'dwt';
 import { WebTwain } from 'dwt/dist/types/WebTwain';
+import 'dwt/addon/viewer'; // 👈 Essential to enable Viewer support!
+
+@Injectable({
+  providedIn: 'root'
+})
+export class DynamsoftScannerService {
+  private dwtObject: WebTwain | null = null;
+  private isReady = false;
+
+  initialize(containerId: string): Promise<void> {
+    console.log('[DynamsoftScannerService] Initializing scanner with viewer...');
+    return new Promise((resolve, reject) => {
+      Dynamsoft.DWT.ResourcesPath = 'https://unpkg.com/dwt@18.2.1/dist/'; // ✅ or use your local node_modules path
+
+      Dynamsoft.DWT.Load()
+        .then(() => {
+          return Dynamsoft.DWT.Addon.Viewer.load(); // ✅ Load viewer addon
+        })
+        .then(() => {
+          console.log('[DynamsoftScannerService] Viewer module loaded');
+          // Create Viewer UI
+          Dynamsoft.DWT.Viewer.createViewer({
+            container: document.getElementById(containerId) as HTMLDivElement,
+            width: '100%',
+            height: '600px',
+            defaultViewMode: '1',
+            enableModeSwitchButton: true,
+            enableScanButton: true,
+            enableUploadButton: true,
+            enableRemoveButton: true,
+            enableSaveButton: true,
+            view: '1' // one image per row
+          });
+
+          const dwt = Dynamsoft.DWT.GetWebTwain(containerId);
+          const startTime = Date.now();
+          const timeout = 10000;
+
+          const waitForSources = () => {
+            if (dwt && dwt.SourceCount > 0) {
+              this.dwtObject = dwt;
+              this.isReady = true;
+              console.log('[DynamsoftScannerService] Scanner is ready');
+              resolve();
+            } else if (Date.now() - startTime > timeout) {
+              reject('Scanner source detection timed out.');
+            } else {
+              console.log('[DynamsoftScannerService] Waiting for sources...');
+              setTimeout(waitForSources, 500);
+            }
+          };
+
+          waitForSources();
+        })
+        .catch((err) => {
+          console.error('Dynamsoft loading failed:', err);
+          reject(err);
+        });
+    });
+  }
+
+  get isScannerReady(): boolean {
+    return this.isReady;
+  }
+
+  acquireImage(onSuccess: () => void, onError: (err: string) => void): void {
+    if (!this.dwtObject || !this.isReady) {
+      onError('Scanner not ready.');
+      return;
+    }
+
+    this.dwtObject.AcquireImage({
+      IfShowUI: true,
+      IfFeederEnabled: false,
+      IfDuplexEnabled: false,
+      OnPostAllTransfers: onSuccess,
+      OnFailure: (_code: number, errorString: string) => {
+        onError('Scan failed: ' + errorString);
+      }
+    });
+  }
+
+  convertToPDFBlob(imageIndices: number[], onSuccess: (blob: Blob) => void, onError: (err: string) => void): void {
+    if (!this.dwtObject) {
+      onError('Scanner not ready.');
+      return;
+    }
+
+    this.dwtObject.ConvertToBlob(
+      imageIndices,
+      Dynamsoft.DWT.EnumDWT_ImageType.IT_PDF,
+      (blob: Blob) => {
+        if (blob) {
+          onSuccess(blob);
+        } else {
+          onError('Failed to get PDF blob.');
+        }
+      },
+      (_code: number, errorString: string) => {
+        onError('Blob conversion error: ' + errorString);
+      }
+    );
+  }
+
+  clearImages(): void {
+    if (this.dwtObject && this.isReady) {
+      this.dwtObject.RemoveAllImages();
+    }
+  }
+
+  getImageCount(): number {
+    return this.dwtObject?.HowManyImagesInBuffer ?? 0;
+  }
+}
+
+
+
+import { Injectable } from '@angular/core';
+import Dynamsoft from 'dwt';
+import { WebTwain } from 'dwt/dist/types/WebTwain';
 
 @Injectable({
   providedIn: 'root'
