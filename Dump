@@ -1,1 +1,81 @@
+import { Injectable } from '@angular/core';
 
+declare const Dynamsoft: any;
+
+@Injectable({
+  providedIn: 'root'
+})
+export class DynamsoftScannerService {
+  DWObject: any;
+  isReady = false;
+
+  constructor() {}
+
+  async initialize(): Promise<void> {
+    if (typeof Dynamsoft === 'undefined') {
+      console.error('Dynamsoft not loaded');
+      return;
+    }
+
+    await Dynamsoft.DWT.Load();
+
+    return new Promise<void>((resolve, reject) => {
+      Dynamsoft.DWT.CreateDWTObjectEx(
+        { WebTwainId: 'dwtcontrol' },
+        (obj: any) => {
+          this.DWObject = obj;
+          this.isReady = true;
+          console.log('Scanner ready');
+          resolve();
+        },
+        (err: any) => {
+          console.error('Scanner init failed', err);
+          reject(err);
+        }
+      );
+    });
+  }
+
+  acquire(): void {
+    if (!this.isReady || !this.DWObject) {
+      console.warn('Scanner not ready');
+      return;
+    }
+
+    this.DWObject.SelectSourceAsync().then(() => {
+      this.DWObject.OpenSource();
+      this.DWObject.AcquireImage();
+    });
+  }
+}
+
+
+import { Component, OnInit } from '@angular/core';
+import { DynamsoftScannerService } from '../services/dynamsoft-scanner.service';
+
+@Component({
+  selector: 'app-dynamsoft-scan-document',
+  template: `
+    <button (click)="scan()">Scan Document</button>
+  `
+})
+export class DynamsoftScanDocumentComponent implements OnInit {
+  constructor(private scannerService: DynamsoftScannerService) {}
+
+  async ngOnInit() {
+    try {
+      await this.scannerService.initialize();
+    } catch (error) {
+      console.error('Initialization failed:', error);
+    }
+  }
+
+  scan() {
+    this.scannerService.acquire();
+  }
+}
+
+
+"scripts": [
+  "node_modules/dwt/dist/dynamsoft.webtwain.min.js"
+]
