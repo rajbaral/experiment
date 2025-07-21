@@ -1,4 +1,81 @@
 import { Injectable } from '@angular/core';
+
+declare const Dynamsoft: any;
+
+@Injectable({
+  providedIn: 'root'
+})
+export class DynamsoftScannerService {
+  private isReady = false;
+
+  loadDynamsoftViewerScript(containerId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if ((window as any).Dynamsoft?.DWT?.Viewer) {
+        this.initializeViewer(containerId);
+        resolve();
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/dwt@18.4.1/dist/dynamsoft.webtwain.min.js';
+      script.onload = () => {
+        console.log('[Dynamsoft] Script loaded');
+        this.configureCDNResources();
+        this.loadViewerAddon().then(() => {
+          this.initializeViewer(containerId);
+          resolve();
+        }).catch(reject);
+      };
+      script.onerror = () => reject(new Error('Failed to load Dynamsoft script'));
+
+      document.head.appendChild(script);
+    });
+  }
+
+  private configureCDNResources(): void {
+    Dynamsoft.DWT.ResourcesPath = 'https://unpkg.com/dwt@18.4.1/dist/';
+    Dynamsoft.DWT.ProductKey = '<YOUR-LICENSE-KEY-HERE>';
+  }
+
+  private loadViewerAddon(): Promise<void> {
+    return Dynamsoft.DWT.Addon && Dynamsoft.DWT.Addon.Viewer
+      ? Dynamsoft.DWT.Addon.Viewer.load()
+      : Promise.reject(new Error('Viewer Addon not found'));
+  }
+
+  private initializeViewer(containerId: string): void {
+    const container = document.getElementById(containerId);
+    if (!container) {
+      console.error(`[Dynamsoft] Container "${containerId}" not found`);
+      return;
+    }
+
+    Dynamsoft.DWT.Viewer.createViewer({
+      container: container,
+      width: '100%',
+      height: '500px',
+      defaultViewMode: '1x1'
+    }).then((viewer: any) => {
+      console.log('[Dynamsoft] Viewer initialized');
+      this.isReady = true;
+    }).catch((err: any) => {
+      console.error('[Dynamsoft] Viewer init failed:', err);
+    });
+  }
+
+  get scannerReady(): boolean {
+    return this.isReady;
+  }
+}
+
+
+
+
+
+
+
+
+import { Injectable } from '@angular/core';
 import Dynamsoft from 'dwt';
 import { WebTwain } from 'dwt/dist/types/WebTwain';
 import 'dwt/addon/viewer'; // 👈 Essential to enable Viewer support!
