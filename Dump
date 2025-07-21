@@ -1,1 +1,45 @@
+<!-- Dynamsoft built-in viewer placeholder -->
+<div id="dwtcontrolContainer" style="width: 600px; height: 400px; border: 1px solid #ccc;"></div>
 
+
+declare var Dynamsoft: any;
+
+DWObject: any;
+
+ngAfterViewInit() {
+  this.initDynamsoftViewer();
+}
+
+initDynamsoftViewer() {
+  Dynamsoft.DWT.Load()
+    .then((dwtObject: any) => {
+      this.DWObject = dwtObject;
+
+      // Bind viewer UI
+      dwtObject.Viewer.bind(document.getElementById("dwtcontrolContainer"));
+
+      // Optional: Load default settings or show source selector
+      this.selectScannerSource();
+    })
+    .catch((error: any) => {
+      console.error("Dynamsoft load error:", error);
+    });
+}
+
+
+
+selectScannerSource() {
+  if (this.DWObject) {
+    this.DWObject.SelectSourceAsync()
+      .then(() => {
+        return this.DWObject.OpenSourceAsync();
+      })
+      .then(() => {
+        // Scanner is ready
+        console.log("Scanner ready");
+      })
+      .catch((err: any) => {
+        console.error("Scanner error", err);
+      });
+  }
+}
