@@ -1,1 +1,64 @@
+Here’s a concise and professional video demo script you can use to introduce the Dynamsoft integration for document scanning in your application. This version compares it to the previous Asprise (ScannerJS) implementation and highlights the backend consistency and UI preservation.
+
+⸻
+
+🎥 Video Script: Dynamsoft Document Scanning Integration
+
+⸻
+
+[Opening Slide / Voiceover with screen showing the page]
+
+Narrator:
+
+“Welcome to the NEXA VA CCN Scan Tool demo. In this walkthrough, we’ll showcase our newly integrated document scanning workflow using Dynamsoft, implemented as a cost-effective alternative to our previous Asprise ScannerJS solution.”
+
+⸻
+
+[Transition to the first screenshot - Asprise version]
+
+Narrator:
+
+“Previously, we used Asprise ScannerJS for scanning claim documents. The user interface provided a simple button to scan, preview, and upload documents. All scanned files were stored in blob storage and their metadata persisted in our backend claims table.”
+
+⸻
+
+[Transition to second screenshot - Dynamsoft version]
+
+Narrator:
+
+“Due to licensing costs, we’ve now introduced a Dynamsoft-based scanning page. As you can see, we’ve preserved the exact UI/UX layout — ensuring a seamless experience for users.”
+
+⸻
+
+[Show the same elements: Scan button, Upload area, Batch Description, Source Type dropdown]
+
+Narrator:
+
+“The scan process is now powered by Dynamsoft Web TWAIN, but everything else remains unchanged. Scanned PDFs are still uploaded to the same Azure Blob Storage location, and metadata like total page count, source type, and batch description is saved to the same backend table.”
+
+⸻
+
+[Show scanning demo or explain if it’s not recorded]
+
+Narrator:
+
+“Once the user clicks ‘Scan,’ the Dynamsoft scanner dialog appears, allowing selection of scanner source, resolution, and other scan options. After scanning, the documents are listed here, ready for review and upload.”
+
+⸻
+
+[Emphasize benefits briefly]
+
+Narrator:
+
+“This integration brings a cost advantage, avoids vendor lock-in, and maintains backend consistency. No changes were required to our API endpoints or backend logic.”
+
+⸻
+
+[Closing screen with branding or acknowledgment]
+
+Narrator:
+
+“This completes the demo of our Dynamsoft-powered scanning integration. Thank you for watching.”
+Thank you for watching this demo. If you have any questions feel free to reach out.
+⸻
 
