@@ -1,64 +1,38 @@
-Here’s a concise and professional video demo script you can use to introduce the Dynamsoft integration for document scanning in your application. This version compares it to the previous Asprise (ScannerJS) implementation and highlights the backend consistency and UI preservation.
+I need to research  Dynamsoft and Scanner JS, so we can conduct an assessment on which is the best to use for scanning based on following scenarios
+Dymamsoft- Research is done on the following areas and added to the confluence page:
 
-⸻
+Features
 
-🎥 Video Script: Dynamsoft Document Scanning Integration
+Platform Support
 
-⸻
+Licensing
 
-[Opening Slide / Voiceover with screen showing the page]
+Security
 
-Narrator:
+Is Dynamsoft able to override user scanner default settings?
 
-“Welcome to the NEXA VA CCN Scan Tool demo. In this walkthrough, we’ll showcase our newly integrated document scanning workflow using Dynamsoft, implemented as a cost-effective alternative to our previous Asprise ScannerJS solution.”
+ScannerJS- Research is done on the following areas and added to the confluence page:
 
-⸻
+Features
 
-[Transition to the first screenshot - Asprise version]
+Platform Support
 
-Narrator:
+Licensing
 
-“Previously, we used Asprise ScannerJS for scanning claim documents. The user interface provided a simple button to scan, preview, and upload documents. All scanned files were stored in blob storage and their metadata persisted in our backend claims table.”
+Security
 
-⸻
+Performance
 
-[Transition to second screenshot - Dynamsoft version]
+Ease of Integration
 
-Narrator:
+Overall Impressions
 
-“Due to licensing costs, we’ve now introduced a Dynamsoft-based scanning page. As you can see, we’ve preserved the exact UI/UX layout — ensuring a seamless experience for users.”
+Is ScannerJS able to override user scanner default settings?
 
-⸻
+Note: For Dynamsoft , the following areas can be assessed after is fully implemented (and is out of scope for this story.)
 
-[Show the same elements: Scan button, Upload area, Batch Description, Source Type dropdown]
+Performance
 
-Narrator:
+Ease of Integration
 
-“The scan process is now powered by Dynamsoft Web TWAIN, but everything else remains unchanged. Scanned PDFs are still uploaded to the same Azure Blob Storage location, and metadata like total page count, source type, and batch description is saved to the same backend table.”
-
-⸻
-
-[Show scanning demo or explain if it’s not recorded]
-
-Narrator:
-
-“Once the user clicks ‘Scan,’ the Dynamsoft scanner dialog appears, allowing selection of scanner source, resolution, and other scan options. After scanning, the documents are listed here, ready for review and upload.”
-
-⸻
-
-[Emphasize benefits briefly]
-
-Narrator:
-
-“This integration brings a cost advantage, avoids vendor lock-in, and maintains backend consistency. No changes were required to our API endpoints or backend logic.”
-
-⸻
-
-[Closing screen with branding or acknowledgment]
-
-Narrator:
-
-“This completes the demo of our Dynamsoft-powered scanning integration. Thank you for watching.”
-Thank you for watching this demo. If you have any questions feel free to reach out.
-⸻
-
+Overall Impressions
