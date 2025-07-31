@@ -1,3 +1,9 @@
+⚽ Everest Warriors Pickup Game Manager
+
+A web-based application for organizing, managing, and tracking pickup soccer games. It supports features like team creation, member and guest management, game payments (paid vs. free), admin roles (including finance admin), and AWS-integrated authentication and data storage.
+
+
+
 I need to research  Dynamsoft and Scanner JS, so we can conduct an assessment on which is the best to use for scanning based on following scenarios
 Dymamsoft- Research is done on the following areas and added to the confluence page:
 
