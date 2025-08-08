@@ -1,3 +1,75 @@
+processScannedPages(): void {
+  const mode = this.selectedSeparatorMode;
+
+  if (mode === 'blankpage') {
+    let blankPageDetected = false;
+
+    this.scannerService.splitAndSaveNonBlankPDFs(
+      (documents: { blob: Blob; pageCount: number }[]) => {
+        let totalPages = 0;
+
+        documents.forEach(({ blob, pageCount }) => {
+          this.addScannedDocument(blob, pageCount);
+          totalPages += pageCount;
+        });
+
+        this.grandTotalPages = totalPages;
+
+        const message = blankPageDetected
+          ? `Blank page detected. ${documents.length} document(s) split and saved.`
+          : `Document scanned and saved successfully. Total: ${totalPages}`;
+
+        this.showSuccessMessage(message);
+      },
+      (err: string) => {
+        this.showErrorMessage(err);
+      },
+      () => {
+        blankPageDetected = true;
+      }
+    );
+  } else if (mode === 'barcode') {
+    this.scannerService.detectBarcodesAndSplit()
+      .then((barcodeSplitGroups: Blob[][]) => {
+        if (!barcodeSplitGroups || barcodeSplitGroups.length === 0) {
+          this.showErrorMessage('No barcodes found to split documents.');
+          return;
+        }
+
+        let totalPages = 0;
+
+        barcodeSplitGroups.forEach((groupBlobs) => {
+          const merged = new Blob(groupBlobs, { type: 'application/pdf' });
+          this.addScannedDocument(merged, groupBlobs.length);
+          totalPages += groupBlobs.length;
+        });
+
+        this.grandTotalPages = totalPages;
+
+        this.showSuccessMessage(
+          `Scanned documents split using barcode detection. Total pages: ${totalPages}`
+        );
+      })
+      .catch((err: any) => {
+        console.error('Barcode splitting failed:', err);
+        this.showErrorMessage('Barcode-based document splitting failed.');
+      });
+  } else {
+    // Default: process all scanned pages as one document
+    const indices = Array.from({ length: originalCount }, (_, i) => i);
+
+    this.scannerService.convertToPDFBlob(indices, (blob: Blob) => {
+      this.addScannedDocument(blob, indices.length);
+      this.grandTotalPages = indices.length;
+      this.showSuccessMessage(`Scanned document saved. Total pages: ${indices.length}`);
+    });
+  }
+}
+
+
+
+
+
 detectBarcodesAndSplit(): Promise<Blob[][]> {
   return new Promise((resolve, reject) => {
     const dwt = this.dwtObject;
