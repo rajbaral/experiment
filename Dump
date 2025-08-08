@@ -1,1 +1,81 @@
+detectBarcodesAndSplit(): Promise<Blob[][]> {
+  return new Promise((resolve, reject) => {
+    const dwt = this.dwtObject;
+    if (!dwt) {
+      reject('DWT object not initialized');
+      return;
+    }
 
+    const totalPages = dwt.HowManyImagesInBuffer;
+    const barcodePages: number[] = [];
+
+    const processPage = (index: number) => {
+      dwt.Addon.BarcodeReader.read({
+        imageIndex: index,
+        maxBarcodesToRead: 1,
+        barcodeFormatIds: Dynamsoft.DBR.EnumBarcodeFormat.BF_ALL,
+        onSuccess: results => {
+          if (results.length > 0) {
+            barcodePages.push(index);
+          }
+          next();
+        },
+        onFailure: () => next()
+      });
+    };
+
+    let index = 0;
+    const next = () => {
+      index++;
+      if (index < totalPages) {
+        processPage(index);
+      } else {
+        // After detection is complete
+        const groups: number[][] = [];
+        let last = 0;
+
+        barcodePages.forEach(bp => {
+          groups.push(Array.from({ length: bp - last }, (_, i) => i + last));
+          last = bp;
+        });
+
+        groups.push(Array.from({ length: totalPages - last }, (_, i) => i + last));
+
+        const blobGroups: Promise<Blob[]>[] = groups.map(pages =>
+          new Promise((res, rej) => {
+            dwt.ConvertToBlob(
+              pages,
+              Dynamsoft.DWT.EnumDWT_ImageType.IT_PDF,
+              (blob) => res([blob]),
+              (_code, msg) => rej(`Failed to convert group: ${msg}`)
+            );
+          })
+        );
+
+        Promise.all(blobGroups)
+          .then(result => resolve(result))
+          .catch(err => reject(err));
+      }
+    };
+
+    // Start processing
+    processPage(index);
+  });
+}
+
+
+
+
+this.scannerService.detectBarcodesAndSplit().then((blobsArray) => {
+  // blobsArray: Blob[][] - each sub-array is a group of images converted into one PDF blob
+  blobsArray.forEach((groupBlob, i) => {
+    const file = new File([groupBlob[0]], `split_doc_${i + 1}.pdf`, { type: 'application/pdf' });
+    this.scannedDocuments.push({
+      name: file.name,
+      type: file.type,
+      url: URL.createObjectURL(file)
+    });
+  });
+}).catch(err => {
+  console.error('Barcode split failed:', err);
+});
